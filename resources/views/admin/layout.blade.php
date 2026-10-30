@@ -4,11 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>@yield('title', 'Admin · Casa Grande Hotel')</title>
+  <link rel="icon" type="image/png" href="{{ asset('img/logo.png') }}">
   <link rel="stylesheet" href="{{ asset('css/site.css') }}">
 </head>
 <body>
 <header class="admin-nav">
-  <a class="admin-brand" href="{{ route('admin.dashboard') }}">Casa Grande <span>ADMIN</span></a>
+  <a class="admin-brand" href="{{ route('admin.dashboard') }}">
+    <img src="{{ asset('img/logo.png') }}" alt="Casa Grande Hotel">
+    <span>ADMIN</span>
+  </a>
   <nav aria-label="Administration">
     <a href="{{ route('admin.dashboard') }}">Dashboard</a>
     <a href="{{ route('admin.reservations') }}">Reservations</a>

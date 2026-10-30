@@ -52,10 +52,10 @@ class HotelFlowTest extends TestCase
 
     public function test_website_pages_load(): void
     {
-        $this->get('/')->assertOk()->assertSee('Casa Grande');
+        $this->get('/')->assertOk()->assertSee('Casa Grande')->assertSee('img/logo.png')->assertSee('rel="icon"', false);
         $this->get('/?check_in='.now()->addDay()->format('Y-m-d').'&check_out='.now()->addDays(3)->format('Y-m-d').'&guests=2')->assertOk();
-        $this->get('/login')->assertOk()->assertSee('Log in');
-        $this->get('/register')->assertOk()->assertSee('Create an account');
+        $this->get('/login')->assertOk()->assertSee('Log in')->assertSee('img/logo.png')->assertSee('rel="icon"', false);
+        $this->get('/register')->assertOk()->assertSee('Create an account')->assertSee('img/logo.png')->assertSee('rel="icon"', false);
         $this->get('/reservations')->assertRedirect('/login');
         $this->get('/book/R101')->assertRedirect('/login');
         $this->get('/log')->assertOk();
@@ -121,10 +121,10 @@ class HotelFlowTest extends TestCase
         $this->get('/book/R101')->assertRedirect('/login');
         $this->post('/login', ['email' => $admin->email, 'password' => 'secure-pass-123'])
             ->assertRedirect(route('admin.dashboard'));
-        $this->get('/admin')->assertOk()->assertSee('Dashboard');
-        $this->get('/admin/reservations')->assertOk();
-        $this->get('/admin/rooms')->assertOk();
-        $this->get('/admin/users')->assertOk();
+        $this->get('/admin')->assertOk()->assertSee('Dashboard')->assertSee('img/logo.png')->assertSee('rel="icon"', false);
+        $this->get('/admin/reservations')->assertOk()->assertSee('img/logo.png')->assertSee('rel="icon"', false);
+        $this->get('/admin/rooms')->assertOk()->assertSee('img/logo.png')->assertSee('rel="icon"', false);
+        $this->get('/admin/users')->assertOk()->assertSee('img/logo.png')->assertSee('rel="icon"', false);
     }
 
     public function test_admin_can_manage_rooms_without_deleting_booking_history(): void

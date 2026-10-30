@@ -6,7 +6,7 @@
 <title>@yield('title', 'Casa Grande Hotel')</title>
 <meta name="theme-color" content="#0a0908">
 <meta name="description" content="Casa Grande Hotel: reserve your room online and pay securely with card, GCash or Maya.">
-<link rel="icon" type="image/png" href="{{ asset('favicon.png') }}">
+<link rel="icon" type="image/png" href="{{ asset('img/logo.png') }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
