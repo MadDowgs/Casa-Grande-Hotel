@@ -10,7 +10,7 @@
       <p class="eyebrow">Secure payment</p><h2 class="h2" style="font-size:clamp(2rem,3.6vw,2.8rem)">How would you like to pay?</h2>
       @if (session('error'))<div class="inline-msg" style="margin-top:20px" role="alert">{{ session('error') }}</div>@endif
 
-      <form method="POST" action="{{ route('pay.process', $res->code) }}" id="payForm" data-label="{{ $label }}" novalidate style="margin-top:24px">
+      <form method="POST" action="{{ route('pay.process', $res->code) }}" id="payForm" data-label="{{ $label }}" data-session-url="{{ route('pay.session', $res->code) }}" data-status-url="{{ route('pay.status', $res->code) }}" data-simulate-base="{{ url('/pay/' . $res->code . '/simulate') }}" data-cancel-base="{{ url('/pay/' . $res->code . '/session') }}" data-done-url="{{ route('done', $res->code) }}" novalidate style="margin-top:24px">
         @csrf
         <div class="seg" role="radiogroup" aria-label="Payment method">
           <label><input type="radio" name="method" value="card" {{ $sel === 'card' ? 'checked' : '' }}><span>Card</span></label>
@@ -34,11 +34,7 @@
           </div>
         </div>
 
-        <div id="fwallet" hidden>
-          <label for="mb" id="wlabel">GCash mobile number</label>
-          <input id="mb" name="mobile_number" inputmode="tel" autocomplete="tel" placeholder="09171234567" value="{{ old('mobile_number') }}" required>
-          <p class="mut small" style="margin:10px 0 0">Use the mobile number linked to your account. The +63 format also works.</p>
-        </div>
+        <div id="fwallet" hidden></div>
 
         <div class="actions"><button class="btn">{{ $label }} <svg class="ic"><use href="#i-lock"/></svg></button></div>
       </form>
@@ -51,7 +47,7 @@
         <summary>Test payment details</summary>
         <p>Approved cards: 4242 4242 4242 4242 (Visa), 5555 5555 5555 4444 (Mastercard), 3530 1113 3330 0000 (JCB).<br>
         Declined card: 4000 0000 0000 0002. Use any future expiry and any 3-digit CVV.<br>
-        GCash / Maya: 09171234567 approves. Any number ending in 0000 is declined (insufficient balance).</p>
+        Demo QR: select GCash or Maya, then scan the simulated QR and use the local demo button to complete payment. No real wallet account is connected.</p>
       </details>
     </div>
 
@@ -69,7 +65,24 @@
       </div>
     </aside>
   </div>
-</div></main>
+</div>
+<div class="qr-modal" id="qrModal" role="dialog" aria-modal="true" aria-labelledby="qrTitle" hidden>
+  <div class="qr-backdrop"></div>
+  <div class="qr-dialog" tabindex="-1">
+    <p class="eyebrow" id="qrProvider">GCash</p>
+    <h2 class="h2" id="qrTitle">Scan to pay</h2>
+    <p class="qr-reservation"><span>{{ $res->code }}</span><strong id="qrAmount"></strong></p>
+    <div class="qr-image-wrap"><img id="qrImage" class="qr-image" alt="Payment QR code"></div>
+    <p class="qr-instructions">Open your GCash/Maya app → Scan QR → confirm payment</p>
+    <p class="qr-countdown" id="qrCountdown">5:00</p>
+    <p class="qr-status" id="qrStatus" aria-live="polite">Waiting for payment…</p>
+    @if(app()->environment(['local','testing']))
+      <button type="button" class="btn block" id="simulatePayment">Demo: Simulate payment done</button>
+    @endif
+    <button type="button" class="qr-cancel-link" id="qrCancel">Cancel</button>
+  </div>
+</div>
+</main>
 @endsection
 
 @section('scripts')

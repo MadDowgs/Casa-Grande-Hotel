@@ -1,55 +1,24 @@
 (function () {
   var f = document.getElementById('payForm'); if (!f) return;
-  var card = document.getElementById('fcard'), wal = document.getElementById('fwallet'), wl = document.getElementById('wlabel'),
-      num = f.card_number, exp = f.expiry, cvv = f.cvv, mob = f.mobile_number, brand = document.getElementById('brand');
+  var card = document.getElementById('fcard'), wal = document.getElementById('fwallet'), num = f.card_number, exp = f.expiry, cvv = f.cvv, brand = document.getElementById('brand');
+  function sync() { var m = f.querySelector('input[name=method]:checked').value, c = m === 'card'; card.hidden = !c; wal.hidden = c; card.querySelectorAll('input,select').forEach(function (x) { x.disabled = !c; }); }
+  f.querySelectorAll('input[name=method]').forEach(function (r) { r.addEventListener('change', sync); }); sync();
+  function brandOf(d) { if (/^4/.test(d)) return 'Visa'; if (/^(5[1-5]|222[1-9]|22[3-9]|2[3-6]|27[01]|2720)/.test(d)) return 'Mastercard'; if (/^35(2[89]|[3-8])/.test(d)) return 'JCB'; if (/^3[47]/.test(d)) return 'Amex'; return ''; }
+  num.addEventListener('input', function () { var d = num.value.replace(/\D/g, '').slice(0,16), b = brandOf(d), g = b === 'Amex' ? [4,6,5] : [4,4,4,4], o = [], i = 0; if (b === 'Amex') d = d.slice(0,15); g.forEach(function(n) { if (d.length > i) { o.push(d.substr(i,n)); i += n; } }); num.value = o.join(' '); brand.textContent = b; cvv.maxLength = b === 'Amex' ? 4 : 3; cvv.placeholder = b === 'Amex' ? '1234' : '123'; });
+  exp.addEventListener('input', function () { var d = exp.value.replace(/\D/g, '').slice(0,4); exp.value = d.length > 2 ? d.slice(0,2)+'/'+d.slice(2) : d; });
+  cvv.addEventListener('input', function () { cvv.value = cvv.value.replace(/\D/g,''); });
 
-  function sync() {
-    var m = f.querySelector('input[name=method]:checked').value, c = m === 'card';
-    card.hidden = !c; wal.hidden = c;
-    card.querySelectorAll('input,select').forEach(function (x) { x.disabled = !c; });
-    wal.querySelectorAll('input').forEach(function (x) { x.disabled = c; });
-    wl.textContent = (m === 'maya' ? 'Maya' : 'GCash') + ' mobile number';
-  }
-  f.querySelectorAll('input[name=method]').forEach(function (r) { r.addEventListener('change', sync); });
-  sync();
+  var modal = document.getElementById('qrModal'), dialog = modal && modal.querySelector('.qr-dialog');
+  var pollTimer = null, countdownTimer = null, currentSession = null, previousFocus = null;
+  function showError(msg) { var o = document.getElementById('perr'); if (!o) { o = document.createElement('div'); o.id='perr'; o.className='msg bad'; o.setAttribute('role','alert'); f.parentNode.insertBefore(o,f); } o.textContent=msg; o.scrollIntoView({block:'center'}); }
+  function setButtonLoading(on) { var b=f.querySelector('.btn'); b.disabled=on; b.textContent=on?'Creating QR…':f.dataset.label; }
+  function stopTimers() { if(pollTimer) clearInterval(pollTimer); if(countdownTimer) clearInterval(countdownTimer); pollTimer=countdownTimer=null; }
+  function closeModal(cancelSession) { stopTimers(); if(cancelSession && currentSession) { var token=document.querySelector('input[name=_token]').value; fetch(f.dataset.cancelBase+'/'+encodeURIComponent(currentSession)+'/cancel',{method:'POST',headers:{'X-CSRF-TOKEN':token,'Accept':'application/json'}}).catch(function(){}); } modal.hidden=true; document.body.style.overflow=''; currentSession=null; if(previousFocus) previousFocus.focus(); setButtonLoading(false); }
+  function trapFocus(ev) { if(ev.key==='Escape') { closeModal(true); return; } if(ev.key!=='Tab') return; var a=dialog.querySelectorAll('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'), first=a[0], last=a[a.length-1]; if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus();} else if(!ev.shiftKey&&document.activeElement===last){ev.preventDefault();first.focus();} }
+  function openModal(data) { previousFocus=document.activeElement; currentSession=data.session_id; document.getElementById('qrProvider').textContent=data.provider==='maya'?'Maya':'GCash'; document.getElementById('qrImage').src=data.qr_svg; document.getElementById('qrAmount').textContent='₱'+Number(data.amount).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}); document.getElementById('qrStatus').textContent='Waiting for payment…'; modal.hidden=false; document.body.style.overflow='hidden'; dialog.focus(); var expires=new Date(data.expires_at).getTime(); countdownTimer=setInterval(function(){var seconds=Math.max(0,Math.floor((expires-Date.now())/1000));document.getElementById('qrCountdown').textContent=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');if(seconds<=0){document.getElementById('qrStatus').textContent='QR expired. Close this window and generate a new one.';stopTimers();}},250); pollTimer=setInterval(pollStatus,2500); pollStatus(); }
+  function pollStatus() { if(!currentSession)return; fetch(f.dataset.statusUrl+'?session='+encodeURIComponent(currentSession),{headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw new Error('Status request failed');return r.json();}).then(function(data){if(data.status==='PAID'){stopTimers();document.getElementById('qrStatus').textContent='Payment confirmed';window.location.href=f.dataset.doneUrl;}else if(data.status==='EXPIRED'){document.getElementById('qrStatus').textContent='QR expired. Close this window and generate a new one.';stopTimers();}else if(data.status==='CANCELLED'){document.getElementById('qrStatus').textContent='Payment cancelled.';stopTimers();}}).catch(function(){document.getElementById('qrStatus').textContent='Network error. Retrying…';}); }
+  document.getElementById('qrCancel').addEventListener('click',function(){closeModal(true);}); document.querySelector('.qr-backdrop').addEventListener('click',function(){closeModal(true);}); modal.addEventListener('keydown',trapFocus);
+  var simulate=document.getElementById('simulatePayment'); if(simulate)simulate.addEventListener('click',function(){if(!currentSession)return;simulate.disabled=true;var token=document.querySelector('input[name=_token]').value;fetch(f.dataset.simulateBase+'/'+encodeURIComponent(currentSession),{method:'POST',headers:{'X-CSRF-TOKEN':token,'Accept':'application/json'}}).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||'Payment failed');return d;});}).then(function(){document.getElementById('qrStatus').textContent='Payment confirmed';stopTimers();window.location.href=f.dataset.doneUrl;}).catch(function(e){document.getElementById('qrStatus').textContent=e.message;simulate.disabled=false;});});
 
-  function brandOf(d) {
-    if (/^4/.test(d)) return 'Visa';
-    if (/^(5[1-5]|222[1-9]|22[3-9]|2[3-6]|27[01]|2720)/.test(d)) return 'Mastercard';
-    if (/^35(2[89]|[3-8])/.test(d)) return 'JCB';
-    if (/^3[47]/.test(d)) return 'Amex';
-    return '';
-  }
-  num.addEventListener('input', function () {
-    var d = num.value.replace(/\D/g, '').slice(0, 16), b = brandOf(d), g = b === 'Amex' ? [4, 6, 5] : [4, 4, 4, 4], o = [], i = 0;
-    if (b === 'Amex') d = d.slice(0, 15);
-    g.forEach(function (n) { if (d.length > i) { o.push(d.substr(i, n)); i += n; } });
-    num.value = o.join(' '); brand.textContent = b;
-    cvv.maxLength = b === 'Amex' ? 4 : 3; cvv.placeholder = b === 'Amex' ? '1234' : '123';
-  });
-  exp.addEventListener('input', function () {
-    var d = exp.value.replace(/\D/g, '').slice(0, 4); exp.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d;
-  });
-  cvv.addEventListener('input', function () { cvv.value = cvv.value.replace(/\D/g, ''); });
-  mob.addEventListener('input', function () { mob.value = mob.value.replace(/[^\d+]/g, ''); });
-
-  // Friendly checks before sending (the Payment API validates again on the server)
-  f.addEventListener('submit', function (ev) {
-    var m = f.querySelector('input[name=method]:checked').value, msg = '';
-    if (m === 'card') {
-      var d = num.value.replace(/\D/g, '');
-      if (!f.bank.value) msg = 'Select the bank that issued your card.';
-      else if (d.length < 15) msg = 'Enter the full card number.';
-      else if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp.value)) msg = 'Enter the expiry as MM/YY.';
-      else if (cvv.value.length < cvv.maxLength) msg = 'Enter the security code (CVV).';
-      else if (f.card_holder.value.trim().length < 2) msg = 'Enter the name on the card.';
-    } else if (!/^(\+63|63|0)9\d{9}$/.test(mob.value)) msg = 'Enter a valid mobile number, e.g. 09171234567.';
-    if (msg) {
-      ev.preventDefault(); ev.stopImmediatePropagation();
-      var b = f.querySelector('.btn'); b.disabled = false; b.textContent = f.dataset.label;
-      var o = document.getElementById('perr');
-      if (!o) { o = document.createElement('div'); o.id = 'perr'; o.className = 'msg bad'; o.setAttribute('role', 'alert'); f.parentNode.insertBefore(o, f); }
-      o.textContent = msg; o.scrollIntoView({ block: 'center' });
-    }
-  }, true);
+  f.addEventListener('submit',function(ev){var m=f.querySelector('input[name=method]:checked').value,msg='';if(m==='card'){var d=num.value.replace(/\D/g,'');if(!f.bank.value)msg='Select the bank that issued your card.';else if(d.length<15)msg='Enter the full card number.';else if(!/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp.value))msg='Enter the expiry as MM/YY.';else if(cvv.value.length<cvv.maxLength)msg='Enter the security code (CVV).';else if(f.card_holder.value.trim()<2)msg='Enter the name on the card.';if(msg){ev.preventDefault();ev.stopImmediatePropagation();setButtonLoading(false);showError(msg);}return;}ev.preventDefault();ev.stopImmediatePropagation();if(f._walletSubmitting)return;f._walletSubmitting=true;setButtonLoading(true);var token=document.querySelector('input[name=_token]').value;fetch(f.dataset.sessionUrl,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':token,'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({method:m})}).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||'Could not create QR code');return d;});}).then(function(data){f._walletSubmitting=false;setButtonLoading(false);openModal(data);}).catch(function(e){f._walletSubmitting=false;setButtonLoading(false);showError(e.message||'Network error. Please try again.');});},true);
 })();

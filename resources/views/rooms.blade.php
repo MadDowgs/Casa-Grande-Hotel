@@ -40,16 +40,18 @@
       @foreach ($rooms as $room)
         @php
           $booked = ! $room->available;
-          $busyNow = in_array($room->id, $busy, true);
+          $remaining = (int) ($availability[$room->id] ?? 0);
+          $busyNow = $remaining === 0;
           $small = $room->capacity < $search['guests'];
           $off = $booked || $busyNow || $small;
-          $note = $booked ? 'Fully booked' : ($busyNow ? 'Booked for your dates' : ($small ? 'Sleeps up to ' . $room->capacity : ''));
+          $note = $booked || $busyNow ? 'Fully booked' : ($small ? 'Sleeps up to ' . $room->capacity : '');
           $q = $search['valid'] ? ['check_in' => $search['in'], 'check_out' => $search['out'], 'guests' => $search['guests']] : [];
         @endphp
         <article class="rcard rv {{ $off ? 'off' : '' }}" style="--d:{{ $loop->index * 0.08 }}s">
           <div class="ph">
             <img src="{{ asset('img/' . $room->image) }}" alt="{{ $room->name }}" loading="lazy">
             <span class="chip">{{ $room->type }}</span>
+            @if (! $off && $remaining >= 1 && $remaining <= 5)<span class="inventory-badge">ONLY {{ $remaining }} LEFT</span>@endif
             @if ($off)<span class="state">{{ $note }}</span>@endif
           </div>
           <div class="bd">

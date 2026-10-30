@@ -44,7 +44,18 @@ class AdminController extends Controller
 
     public function rooms(): View
     {
-        return view('admin.rooms', ['rooms' => Room::orderBy('id')->get()]);
+        $rooms = Room::orderBy('id')->get();
+        $inventory = [];
+        foreach ($rooms as $room) {
+            $occupied = Reservation::where('room_id', $room->id)->where('status', '!=', 'CANCELLED')
+                ->whereDate('check_in', '<=', now()->toDateString())
+                ->whereDate('check_out', '>', now()->toDateString())->count();
+            $inventory[$room->id] = [
+                'occupied' => $occupied,
+                'remaining' => max(0, $room->inventory_capacity - $occupied),
+            ];
+        }
+        return view('admin.rooms', compact('rooms', 'inventory'));
     }
 
     public function storeRoom(Request $request): RedirectResponse
@@ -55,6 +66,7 @@ class AdminController extends Controller
             'type' => ['required', 'string', 'max:30'],
             'price_per_night' => ['required', 'integer', 'min:1', 'max:4294967295'],
             'capacity' => ['required', 'integer', 'min:1', 'max:255'],
+            'inventory_capacity' => ['required', 'integer', 'min:1', 'max:65535'],
             'available' => ['required', 'boolean'],
         ]);
 
@@ -71,8 +83,14 @@ class AdminController extends Controller
             'type' => ['required', 'string', 'max:30'],
             'price_per_night' => ['required', 'integer', 'min:1', 'max:4294967295'],
             'capacity' => ['required', 'integer', 'min:1', 'max:255'],
+            'inventory_capacity' => ['required', 'integer', 'min:1', 'max:65535'],
             'available' => ['required', 'boolean'],
         ]);
+
+        $committed = $this->maximumCommittedSlots($room);
+        if ($data['inventory_capacity'] < $committed) {
+            return back()->withInput()->with('error', "Total capacity cannot be below {$committed} rooms already committed to existing reservations.");
+        }
 
         $room->update($data);
 
@@ -88,6 +106,24 @@ class AdminController extends Controller
         $room->delete();
 
         return back()->with('notice', "Room {$room->id} deleted.");
+    }
+
+    private function maximumCommittedSlots(Room $room): int
+    {
+        $reservations = Reservation::where('room_id', $room->id)->where('status', '!=', 'CANCELLED')
+            ->whereDate('check_out', '>', now()->toDateString())->get(['check_in', 'check_out']);
+        if ($reservations->isEmpty()) return 0;
+        $start = now()->startOfDay();
+        $end = $reservations->max(fn ($reservation) => $reservation->check_out->getTimestamp());
+        $maximum = 0;
+        for ($night = $start->getTimestamp(); $night < $end; $night += 86400) {
+            $date = date('Y-m-d', $night);
+            $count = $reservations->filter(fn ($reservation) =>
+                $reservation->check_in->toDateString() <= $date && $reservation->check_out->toDateString() > $date
+            )->count();
+            $maximum = max($maximum, $count);
+        }
+        return $maximum;
     }
 
     public function users(): View

@@ -4,7 +4,7 @@
 @section('content')
 <main class="page"><div class="wrap center">
   @include('partials.steps', ['n' => 3])
-  <div class="check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+  <div class="check"><img src="{{ asset('img/logo.png') }}" alt="Casa Grande Hotel logo"></div>
   <p class="eyebrow">Thank you</p>
   <h2 class="h2">Your booking is confirmed</h2>
   <p class="mut" style="margin:14px 0 0">We look forward to welcoming you to Casa Grande.</p>

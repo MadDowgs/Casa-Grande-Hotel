@@ -26,6 +26,20 @@ class PaymentGateway
         return [$res->status(), $data];
     }
 
+    /** Demo integration seam for simulated wallet payments. Replace this method with a provider SDK call. */
+    public function simulateWallet(array $payload): array
+    {
+        $url = 'demo://payment-simulator';
+        $headers = ['X-API-Key' => config('hotel.payment_key'), 'Content-Type' => 'application/json'];
+        $response = [
+            'transaction_id' => 'DEMO-' . strtoupper(substr(str_replace('-', '', $payload['session_id']), 0, 12)),
+            'status' => 'APPROVED',
+            'details' => ucfirst($payload['method']) . ' demo payment',
+        ];
+        $this->log($url, $headers, $payload, 201, $response);
+        return [201, $response];
+    }
+
     private function log(string $url, array $headers, array $payload, int $status, array $response): void
     {
         if (isset($payload['card_number'])) $payload['card_number'] = '**** **** **** ' . substr($payload['card_number'], -4);

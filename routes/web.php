@@ -16,9 +16,15 @@ Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->n
 Route::get('/', [SiteController::class, 'rooms'])->name('rooms');
 Route::middleware('auth')->group(function () {
     Route::get('/book/{room}', [SiteController::class, 'book'])->name('book');
+    Route::get('/book/{room}/booked-dates', [SiteController::class, 'bookedDates'])->middleware('throttle:60,1')->name('book.booked-dates');
+    Route::get('/book/{room}/availability', [SiteController::class, 'availability'])->middleware('throttle:60,1')->name('book.availability');
     Route::post('/reserve', [SiteController::class, 'reserve'])->middleware('throttle:20,1')->name('reserve');
     Route::get('/pay/{code}', [SiteController::class, 'pay'])->name('pay');
     Route::post('/pay/{code}', [SiteController::class, 'payProcess'])->middleware('throttle:10,1')->name('pay.process');
+    Route::post('/pay/{code}/session', [SiteController::class, 'createPaymentSession'])->middleware('throttle:10,1')->name('pay.session');
+    Route::get('/pay/{code}/status', [SiteController::class, 'paymentStatus'])->name('pay.status');
+    Route::post('/pay/{code}/simulate/{session}', [SiteController::class, 'simulatePayment'])->middleware('throttle:10,1')->name('pay.simulate');
+    Route::post('/pay/{code}/session/{session}/cancel', [SiteController::class, 'cancelPaymentSession'])->name('pay.session.cancel');
     Route::post('/pay/{code}/cancel', [SiteController::class, 'cancelPay'])->name('pay.cancel');
     Route::get('/done/{code}', [SiteController::class, 'done'])->name('done');
     Route::get('/reservations', [SiteController::class, 'lookup'])->name('reservations');

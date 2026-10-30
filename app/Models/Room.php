@@ -8,8 +8,8 @@ class Room extends Model
 {
     public $incrementing = false;
     protected $keyType = 'string';
-    protected $fillable = ['id', 'name', 'type', 'price_per_night', 'capacity', 'available'];
-    protected $casts = ['available' => 'boolean', 'price_per_night' => 'integer', 'capacity' => 'integer'];
+    protected $fillable = ['id', 'name', 'type', 'price_per_night', 'capacity', 'inventory_capacity', 'available'];
+    protected $casts = ['available' => 'boolean', 'price_per_night' => 'integer', 'capacity' => 'integer', 'inventory_capacity' => 'integer'];
 
     public function reservations() { return $this->hasMany(Reservation::class); }
 
@@ -21,6 +21,6 @@ class Room extends Model
     public function toApi(): array
     {
         return ['id' => $this->id, 'name' => $this->name, 'type' => $this->type, 'price_per_night' => $this->price_per_night,
-                'capacity' => $this->capacity, 'available' => $this->available];
+                'capacity' => $this->capacity, 'inventory_capacity' => $this->inventory_capacity, 'available' => $this->available];
     }
 }

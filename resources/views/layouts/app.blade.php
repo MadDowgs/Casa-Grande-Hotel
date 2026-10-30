@@ -22,6 +22,7 @@
     <a href="{{ route('rooms') }}#rooms" class="{{ request()->routeIs('rooms', 'book') ? 'on' : '' }}">Rooms</a>
     <a href="{{ route('rooms') }}#experience">Experience</a>
     <a href="{{ route('reservations') }}" class="{{ request()->routeIs('reservations') ? 'on' : '' }}">Reservations</a>
+    <a href="{{ route('rooms') }}#contact">Contact</a>
     <a href="{{ route('log') }}" class="{{ request()->routeIs('log') ? 'on' : '' }}">API log</a>
     @guest
       <a href="{{ route('login') }}" class="{{ request()->routeIs('login') ? 'on' : '' }}">Log in</a>
@@ -48,8 +49,9 @@
   <div class="wrap">
     <div class="ft-g">
       <div><img src="{{ asset('img/logo.png') }}" alt="Casa Grande Hotel"><p class="mut small" style="max-width:300px;margin:0">Quiet luxury, warm light and a garden calm in every stay.</p></div>
-      <div><h4>Explore</h4><a href="{{ route('rooms') }}#rooms">Rooms &amp; suites</a><a href="{{ route('rooms') }}#experience">Experience</a><a href="{{ route('reservations') }}">My reservations</a></div>
+      <div><h4>Explore</h4><a href="{{ route('rooms') }}#rooms">Rooms &amp; suites</a><a href="{{ route('rooms') }}#experience">Experience</a><a href="{{ route('reservations') }}">My reservations</a><a href="{{ route('rooms') }}#contact">Contact</a></div>
       <div><h4>Payments</h4><span class="mut small">Visa · Mastercard · JCB</span><br><span class="mut small">GCash · Maya</span></div>
+      <div id="contact"><h4>Contact</h4><a href="https://www.facebook.com/profile.php?id=61564646468411" target="_blank" rel="noopener noreferrer">Casa Grande Hotel</a><span class="mut small contact-item">Taytay, Philippines</span><a href="tel:+639943887607">+63 994 388 7607</a><a href="mailto:casagrandehotel@gmail.com">casagrandehotel@gmail.com</a></div>
     </div>
     <div class="ft-b"><span>&copy; {{ date('Y') }} Casa Grande Hotel</span><span>CIT 305 · Systems Integration and Architecture 1</span></div>
   </div>
