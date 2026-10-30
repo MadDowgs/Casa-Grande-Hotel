@@ -43,7 +43,7 @@
           $busyNow = in_array($room->id, $busy, true);
           $small = $room->capacity < $search['guests'];
           $off = $booked || $busyNow || $small;
-          $note = $booked ? 'Booked' : ($busyNow ? 'Booked for your dates' : ($small ? 'Sleeps up to ' . $room->capacity : ''));
+          $note = $booked ? 'Fully booked' : ($busyNow ? 'Booked for your dates' : ($small ? 'Sleeps up to ' . $room->capacity : ''));
           $q = $search['valid'] ? ['check_in' => $search['in'], 'check_out' => $search['out'], 'guests' => $search['guests']] : [];
         @endphp
         <article class="rcard rv {{ $off ? 'off' : '' }}" style="--d:{{ $loop->index * 0.08 }}s">

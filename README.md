@@ -8,6 +8,7 @@ Guests search rooms, reserve, and pay by **card (Philippine banks), GCash or May
 ## Features
 - Modern dark and gold website: hero with availability search, room cards, live price summary, split payment page, confirmation ticket, mobile friendly
 - Availability search by dates and guests (rooms already booked for those dates, or too small, are marked unavailable)
+- Guest registration and login required to book a room and manage personal reservations
 - Booking validation: dates, capacity, overlapping reservations, amount check
 - Payments: Visa, Mastercard, JCB and Amex cards with a Philippine bank list, GCash and Maya (mobile number)
 - REST API protected by an `X-API-Key` header, rate limited
@@ -62,6 +63,8 @@ php artisan serve                         # terminal 2: website  -> http://127.0
 
 **Windows + XAMPP:** start MySQL in the XAMPP Control Panel, then in the project folder run `.\start-local.bat`.
 It installs dependencies, creates the database, builds the tables, starts both servers and opens the browser.
+Create an account or log in before reserving; the Reservations page lists only bookings made by your account.
+To grant administrator access, first create a regular account, then run `php artisan admin:promote your-admin-email@example.com`. Sign in with that account and open `/admin`; the admin area is not linked in guest navigation. Administrators can manage rooms and set them Available or Fully booked, oversee reservations, and manage account roles. Deleting a user preserves reservation and payment history. Reservation cancellation changes status only and does not issue payment refunds.
 
 ## Deploy with Docker
 

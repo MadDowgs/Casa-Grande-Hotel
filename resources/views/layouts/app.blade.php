@@ -23,6 +23,15 @@
     <a href="{{ route('rooms') }}#experience">Experience</a>
     <a href="{{ route('reservations') }}" class="{{ request()->routeIs('reservations') ? 'on' : '' }}">Reservations</a>
     <a href="{{ route('log') }}" class="{{ request()->routeIs('log') ? 'on' : '' }}">API log</a>
+    @guest
+      <a href="{{ route('login') }}" class="{{ request()->routeIs('login') ? 'on' : '' }}">Log in</a>
+      <a href="{{ route('register') }}" class="{{ request()->routeIs('register') ? 'on' : '' }}">Register</a>
+    @else
+      <form method="POST" action="{{ route('logout') }}" class="nav-logout">
+        @csrf
+        <button type="submit">Log out</button>
+      </form>
+    @endguest
   </nav>
   <div class="nav-r">
     <a class="btn sm" href="{{ route('rooms') }}#rooms">Book now</a>

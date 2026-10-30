@@ -17,9 +17,9 @@
         @csrf
         <input type="hidden" name="room_id" value="{{ $room->id }}">
         <label for="n">Full name</label>
-        <input id="n" name="guest_name" value="{{ old('guest_name') }}" autocomplete="name" placeholder="Juan Dela Cruz" required>
+        <input id="n" name="guest_name" value="{{ old('guest_name', auth()->user()->name) }}" autocomplete="name" placeholder="Juan Dela Cruz" required>
         <label for="m">Email</label>
-        <input id="m" name="guest_email" type="email" value="{{ old('guest_email') }}" autocomplete="email" placeholder="you@email.com" required>
+        <input id="m" name="guest_email" type="email" value="{{ old('guest_email', auth()->user()->email) }}" autocomplete="email" placeholder="you@email.com" required>
         <div class="two">
           <div><label for="i">Check-in</label><input id="i" name="check_in" type="date" min="{{ date('Y-m-d') }}" value="{{ $ci }}" required></div>
           <div><label for="o">Check-out</label><input id="o" name="check_out" type="date" value="{{ $co }}" required></div>

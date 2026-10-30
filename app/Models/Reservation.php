@@ -11,6 +11,7 @@ class Reservation extends Model
 
     public function room() { return $this->belongsTo(Room::class); }
     public function payments() { return $this->hasMany(Payment::class); }
+    public function user() { return $this->belongsTo(User::class); }
 
     /** Public ID shown to guests, e.g. RSV-1001 */
     public function getCodeAttribute(): string { return 'RSV-' . (1000 + $this->id); }

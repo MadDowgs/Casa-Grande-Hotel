@@ -15,7 +15,15 @@ class SiteController extends Controller
 
     private function reservation(string $code): Reservation
     {
-        try { return $this->svc->find($code); } catch (BookingException $e) { abort(404, 'Reservation not found'); }
+        try {
+            $reservation = $this->svc->find($code);
+        } catch (BookingException $e) {
+            abort(404, 'Reservation not found');
+        }
+
+        abort_unless($reservation->user_id === request()->user()->id, 404, 'Reservation not found');
+
+        return $reservation;
     }
 
     public function rooms(Request $request)
@@ -47,6 +55,9 @@ class SiteController extends Controller
     {
         try {
             $res = $this->svc->reserve($request->only(['room_id', 'guest_name', 'guest_email', 'check_in', 'check_out', 'guests']));
+            $res->user()->associate($request->user());
+            $res->save();
+
             return redirect()->route('pay', $res->code);
         } catch (BookingException $e) {
             return back()->withInput()->with('error', $e->getMessage());
@@ -91,15 +102,23 @@ class SiteController extends Controller
 
     public function lookup(Request $request)
     {
-        $list = null; $error = null;
+        $query = $request->user()->reservations()->with('room')->latest('id');
+        $error = null;
         if ($request->has('id')) {
             $id = trim((string) $request->query('id'));
             if ($id === '') $error = 'Enter a reservation ID, or choose List all.';
-            elseif ($r = Reservation::findByCode($id)) $list = collect([$r]);
-            else $error = 'Reservation not found';
-        } elseif ($request->has('all')) {
-            $list = Reservation::latest('id')->get();
+            else {
+                $reservation = Reservation::findByCode($id);
+                if ($reservation && $reservation->user_id === $request->user()->id) {
+                    $query->whereKey($reservation->id);
+                } else {
+                    $error = 'Reservation not found';
+                }
+            }
         }
+
+        $list = $error ? collect() : $query->get();
+
         return view('reservations', compact('list', 'error'));
     }
 
