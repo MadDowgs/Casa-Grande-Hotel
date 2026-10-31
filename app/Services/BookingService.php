@@ -3,12 +3,16 @@
 namespace App\Services;
 
 use App\Exceptions\BookingException;
+use App\Mail\BookingConfirmation;
 use App\Models\Payment;
 use App\Models\PaymentSession;
 use App\Models\Reservation;
 use App\Models\Room;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 /** Business logic shared by the website (Blade) and the REST API. */
 class BookingService
@@ -160,13 +164,21 @@ class BookingService
 
     public function simulateWalletPayment(PaymentSession $session, int $userId): array
     {
-        return DB::transaction(function () use ($session, $userId) {
+        $result = DB::transaction(function () use ($session, $userId) {
             $locked = PaymentSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
             if ($locked->user_id !== $userId) throw new BookingException('Payment session not found', 404);
             if ($locked->expires_at->isPast() && $locked->status === 'PENDING') $locked->update(['status' => 'EXPIRED']);
             if ($locked->status === 'EXPIRED') throw new BookingException('Payment session has expired', 410);
             if ($locked->status === 'CANCELLED') throw new BookingException('Payment session was cancelled', 409);
-            if ($locked->status === 'PAID') return ['status' => 'PAID', 'payment_id' => $locked->id];
+            if ($locked->status === 'PAID') {
+                $payment = Payment::where('reservation_id', $locked->reservation_id)
+                    ->where('method', $locked->provider)
+                    ->where('status', 'PAID')
+                    ->latest('id')
+                    ->firstOrFail();
+
+                return ['status' => 'PAID', 'payment_id' => $payment->code, 'send_confirmation' => false];
+            }
 
             $reservation = Reservation::whereKey($locked->reservation_id)->lockForUpdate()->firstOrFail();
             if ($reservation->status !== 'PENDING') throw new BookingException("Reservation is {$reservation->status}, payment not allowed", 409);
@@ -191,8 +203,23 @@ class BookingService
             ]);
             $reservation->update(['status' => 'CONFIRMED']);
             $locked->update(['status' => 'PAID', 'paid_at' => now()]);
-            return ['status' => 'PAID', 'payment_id' => $payment->code];
+            return [
+                'status' => 'PAID',
+                'payment_id' => $payment->code,
+                'payment_record_id' => $payment->id,
+                'reservation_id' => $reservation->id,
+                'send_confirmation' => true,
+            ];
         });
+
+        if ($result['send_confirmation']) {
+            $reservation = Reservation::with('room')->findOrFail($result['reservation_id']);
+            $payment = Payment::findOrFail($result['payment_record_id']);
+            $this->sendBookingConfirmation($reservation, $payment);
+        }
+        unset($result['send_confirmation'], $result['payment_record_id'], $result['reservation_id']);
+
+        return $result;
     }
 
     public function cancelPaymentSession(PaymentSession $session, int $userId): void
@@ -202,6 +229,88 @@ class BookingService
             $locked = PaymentSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
             if ($locked->status === 'PENDING') $locked->update(['status' => 'CANCELLED']);
         });
+    }
+
+    public function payDemoCard(array $in): Payment
+    {
+        $v = Validator::make($in, [
+            'reservation_id' => 'required|string',
+            'amount' => 'required|numeric|gt:0',
+            'method' => 'required|in:card',
+            'bank' => ['required', 'string', 'regex:/^[\p{L}\p{N}][\p{L}\p{N} .&\'()-]{1,79}$/u'],
+            'card_holder' => ['required', 'string', 'regex:/^[\p{L}][\p{L} .\'-]{1,59}$/u'],
+            'card_number' => ['required', 'string', function ($attribute, $value, $fail) {
+                if (!preg_match('/^[\d\s-]+$/', (string) $value)) {
+                    $fail('Enter a valid Visa, Mastercard, JCB or Amex demo card number.');
+                    return;
+                }
+
+                $number = preg_replace('/\D/', '', (string) $value);
+                $brand = $this->cardBrand($number);
+                $expectedLength = $brand === 'Amex' ? 15 : 16;
+                if ($brand === null || strlen($number) !== $expectedLength || !$this->passesLuhn($number)) {
+                    $fail('Enter a valid Visa, Mastercard, JCB or Amex demo card number.');
+                }
+            }],
+            'expiry' => ['required', 'regex:/^(0[1-9]|1[0-2])\/(\d{2})$/', function ($attribute, $value, $fail) {
+                if (!preg_match('/^(0[1-9]|1[0-2])\/(\d{2})$/', (string) $value, $matches)) return;
+                $year = 2000 + (int) $matches[2];
+                $month = (int) $matches[1];
+                if ($year < (int) now()->format('Y')
+                    || ($year === (int) now()->format('Y') && $month < (int) now()->format('n'))
+                    || $year > (int) now()->format('Y') + 20) {
+                    $fail('Card expiry must be a valid future date.');
+                }
+            }],
+            'cvv' => ['required', 'regex:/^\d{3,4}$/', function ($attribute, $value, $fail) use ($in) {
+                $number = preg_replace('/\D/', '', (string) ($in['card_number'] ?? ''));
+                $expectedLength = $this->cardBrand($number) === 'Amex' ? 4 : 3;
+                if (strlen((string) $value) !== $expectedLength) $fail('Enter a valid security code (CVV).');
+            }],
+        ]);
+        if ($v->fails()) throw new BookingException($v->errors()->first(), 400);
+
+        $reservation = $this->find($in['reservation_id']);
+        if (abs((float) $in['amount'] - $reservation->total_amount) > 0.005) {
+            throw new BookingException('Amount does not match reservation total', 422);
+        }
+
+        [$payment, $status, $message] = DB::transaction(function () use ($reservation, $in) {
+            $locked = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== 'PENDING') {
+                throw new BookingException("Reservation is {$locked->status}, payment not allowed", 409);
+            }
+
+            $payload = [
+                'reference' => $locked->code,
+                'amount' => $locked->total_amount,
+                'currency' => 'PHP',
+                'method' => 'card',
+                'bank' => trim($in['bank']),
+                'card_holder' => trim($in['card_holder']),
+                'card_number' => preg_replace('/\D/', '', $in['card_number']),
+                'expiry' => $in['expiry'],
+                'cvv' => $in['cvv'],
+            ];
+            [$status, $data] = $this->gateway->simulateCard($payload);
+            $payment = Payment::create([
+                'reservation_id' => $locked->id,
+                'amount' => $locked->total_amount,
+                'method' => 'card',
+                'status' => $status === 201 ? 'PAID' : 'FAILED',
+                'transaction_id' => $data['transaction_id'],
+                'details' => $data['details'],
+            ]);
+            if ($status === 201) $locked->update(['status' => 'CONFIRMED']);
+
+            return [$payment, $status, $data['message']];
+        });
+
+        if ($status !== 201) throw new BookingException($message, 402, ['payment_id' => $payment->code, 'status' => 'FAILED']);
+
+        $this->sendBookingConfirmation($reservation->fresh('room'), $payment);
+
+        return $payment;
     }
 
     public function pay(array $in): Payment
@@ -232,6 +341,7 @@ class BookingService
         if ($code === 201) {
             $p = Payment::create($record + ['status' => 'PAID', 'transaction_id' => $data['transaction_id'] ?? null]);
             $r->update(['status' => 'CONFIRMED']);
+            $this->sendBookingConfirmation($r->fresh('room'), $p);
             return $p;
         }
         if ($code === 402) {
@@ -246,5 +356,46 @@ class BookingService
     {
         $s = preg_replace('/[\s\-()]/', '', $s);
         return preg_match('/^(\+63|63)(9\d{9})$/', $s, $m) ? '0' . $m[2] : $s;
+    }
+
+    private function cardBrand(string $number): ?string
+    {
+        return match (true) {
+            preg_match('/^4/', $number) === 1 => 'Visa',
+            preg_match('/^(5[1-5]\d{2}|222[1-9]|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)/', $number) === 1 => 'Mastercard',
+            preg_match('/^35(2[89]|[3-8]\d)/', $number) === 1 => 'JCB',
+            preg_match('/^3[47]/', $number) === 1 => 'Amex',
+            default => null,
+        };
+    }
+
+    private function passesLuhn(string $number): bool
+    {
+        $sum = 0;
+        $double = false;
+        for ($index = strlen($number) - 1; $index >= 0; $index--) {
+            $digit = (int) $number[$index];
+            if ($double) {
+                $digit *= 2;
+                if ($digit > 9) $digit -= 9;
+            }
+            $sum += $digit;
+            $double = !$double;
+        }
+
+        return $sum % 10 === 0;
+    }
+
+    private function sendBookingConfirmation(Reservation $reservation, Payment $payment): void
+    {
+        try {
+            Mail::to($reservation->guest_email)->send(new BookingConfirmation($reservation, $payment));
+        } catch (Throwable $exception) {
+            Log::error('Could not send booking confirmation email.', [
+                'reservation' => $reservation->code,
+                'recipient' => $reservation->guest_email,
+                'exception' => $exception->getMessage(),
+            ]);
+        }
     }
 }

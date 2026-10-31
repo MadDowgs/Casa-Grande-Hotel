@@ -2,12 +2,12 @@
 @section('title', 'Payment · Casa Grande Hotel')
 
 @section('content')
-@php $sel = old('method', 'card'); $label = 'Pay ₱' . number_format($res->total_amount, 2); @endphp
+@php $sel = old('method', 'card'); $label = 'Confirm demo booking · ₱' . number_format($res->total_amount, 2); @endphp
 <main class="page"><div class="wrap">
   @include('partials.steps', ['n' => 2])
   <div class="split">
     <div class="rv">
-      <p class="eyebrow">Secure payment</p><h2 class="h2" style="font-size:clamp(2rem,3.6vw,2.8rem)">How would you like to pay?</h2>
+      <p class="eyebrow">Demo payment</p><h2 class="h2" style="font-size:clamp(2rem,3.6vw,2.8rem)">How would you like to pay?</h2>
       @if (session('error'))<div class="inline-msg" style="margin-top:20px" role="alert">{{ session('error') }}</div>@endif
 
       <form method="POST" action="{{ route('pay.process', $res->code) }}" id="payForm" data-label="{{ $label }}" data-session-url="{{ route('pay.session', $res->code) }}" data-status-url="{{ route('pay.status', $res->code) }}" data-simulate-base="{{ url('/pay/' . $res->code . '/simulate') }}" data-cancel-base="{{ url('/pay/' . $res->code . '/session') }}" data-done-url="{{ route('done', $res->code) }}" novalidate style="margin-top:24px">
@@ -20,10 +20,10 @@
 
         <div id="fcard">
           <label for="bank">Issuing bank</label>
-          <select id="bank" name="bank" required>
-            <option value="">Select your bank</option>
-            @foreach ($banks as $b)<option value="{{ $b }}" {{ old('bank') === $b ? 'selected' : '' }}>{{ $b }}</option>@endforeach
-          </select>
+          <input id="bank" name="bank" list="bank-options" autocomplete="organization" value="{{ old('bank') }}" maxlength="80" placeholder="Choose or enter your bank" required>
+          <datalist id="bank-options">
+            @foreach ($banks as $b)<option value="{{ $b }}">@endforeach
+          </datalist>
           <label for="cn">Card number</label>
           <div class="fld"><input id="cn" name="card_number" inputmode="numeric" autocomplete="cc-number" placeholder="0000 0000 0000 0000" required><span class="brand" id="brand"></span></div>
           <label for="ch">Name on card</label>
@@ -44,9 +44,9 @@
       </form>
 
       <details>
-        <summary>Test payment details</summary>
+        <summary>Demo payment details</summary>
         <p>Approved cards: 4242 4242 4242 4242 (Visa), 5555 5555 5555 4444 (Mastercard), 3530 1113 3330 0000 (JCB).<br>
-        Declined card: 4000 0000 0000 0002. Use any future expiry and any 3-digit CVV.<br>
+        Declined card: 4000 0000 0000 0002. Use any future expiry and any 3-digit CVV. Other issuing banks can be entered above.<br>
         Demo QR: select GCash or Maya, then scan the simulated QR and use the local demo button to complete payment. No real wallet account is connected.</p>
       </details>
     </div>
@@ -61,7 +61,7 @@
         <div class="row"><span>Guests</span><span>{{ $res->guests }}</span></div>
         <div class="row"><span>Nights</span><span>{{ $res->nights }}</span></div>
         <div class="row tot"><span>Total</span><b>₱{{ number_format($res->total_amount, 2) }}</b></div>
-        <div class="note"><svg class="ic"><use href="#i-shield"/></svg><span>Card numbers and CVV are sent only to the payment service and are never stored.</span></div>
+        <div class="note"><svg class="ic"><use href="#i-shield"/></svg><span>Demo card data goes to the local simulator. Only a masked card number is kept in the demo API log; no issuer authorization occurs.</span></div>
       </div>
     </aside>
   </div>

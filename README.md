@@ -1,7 +1,7 @@
 # Casa Grande Hotel
 
-A hotel reservation system built with **Laravel 12** that is integrated with a separate **Payment API** over REST and JSON.
-Guests search rooms, reserve, and pay by **card (Philippine banks), GCash or Maya**. The same logic is also exposed as a **REST API**.
+A hotel reservation system built with **Laravel 12** that is integrated with a separate **demo Payment API** over REST and JSON.
+Guests search rooms, reserve, and simulate payment by **card, GCash or Maya**. The same logic is also exposed as a **REST API**.
 
 > CIT 305 – Systems Integration and Architecture 1 · Final project: *Hotel Reservation System + Payment API*
 
@@ -10,10 +10,10 @@ Guests search rooms, reserve, and pay by **card (Philippine banks), GCash or May
 - Availability search by dates and guests (rooms already booked for those dates, or too small, are marked unavailable)
 - Guest registration and login required to book a room and manage personal reservations
 - Booking validation: dates, capacity, overlapping reservations, amount check
-- Payments: Visa, Mastercard, JCB and Amex cards with a Philippine bank list, GCash and Maya (mobile number)
+- Demo payments: Visa, Mastercard, JCB and Amex test cards with suggested Philippine banks or a custom issuer name, plus simulated GCash/Maya
 - REST API protected by an `X-API-Key` header, rate limited
-- **API log** page: every call to the Payment API, with the card number and CVV masked
-- Card numbers and CVV are forwarded only; they are never stored
+- **API log** page: payment requests store only a masked card number/CVV and never the API key
+- Demo only: card entries are format-checked; the simulator does not contact an issuer or charge money. Never enter real card details.
 - Docker Compose deployment (app + Payment API + MySQL), health check, CI workflow, tests
 
 ## Architecture
@@ -29,7 +29,7 @@ flowchart LR
     G -->|POST /api.php/charges<br/>JSON + X-API-Key| PAY[Payment API<br/>System 2]
 ```
 
-**System 1** is the Hotel Reservation System (this Laravel app). **System 2** is the Payment API in `payment-api/`.
+**System 1** is the Hotel Reservation System (this Laravel app). **System 2** is the local demo Payment API in `payment-api/`.
 The integration point is `app/Services/PaymentGateway.php`.
 
 ```mermaid
@@ -40,11 +40,11 @@ sequenceDiagram
     participant P as Payment API (System 2)
     G->>H: Reserve room (dates, guests)
     H->>D: Validate, save reservation (PENDING)
-    G->>H: Pay (card / GCash / Maya)
-    H->>P: POST /api.php/charges (JSON)
-    P-->>H: 201 APPROVED  or  402 DECLINED
+    G->>H: Submit demo card and confirm
+    H->>H: Validate and simulate card locally
     H->>D: Save payment, reservation CONFIRMED
     H-->>G: Confirmation
+    Note over H,P: REST API payments can still call the separate Payment API
 ```
 
 ## Run locally
@@ -60,17 +60,35 @@ php artisan migrate --seed
 php -S 127.0.0.1:8003 -t payment-api     # terminal 1: Payment API
 php artisan serve                         # terminal 2: website  -> http://127.0.0.1:8000
 ```
+Wait until `http://127.0.0.1:8003/api.php/health` returns `{"status":"ok"}` before submitting a payment.
 
 **Windows + XAMPP:** start MySQL in the XAMPP Control Panel, then in the project folder run `.\start-local.bat`.
 It installs dependencies, creates the database, builds the tables, starts both servers and opens the browser.
 Create an account or log in before reserving; the Reservations page lists only bookings made by your account.
-To grant administrator access, first create a regular account, then run `php artisan admin:promote your-admin-email@example.com`. Sign in with that account and open `/admin`; the admin area is not linked in guest navigation. Administrators can manage rooms and set them Available or Fully booked, oversee reservations, and manage account roles. Deleting a user preserves reservation and payment history. Reservation cancellation changes status only and does not issue payment refunds.
+To grant administrator access, first create a regular account, then run `php artisan admin:promote your-admin-email@example.com`. Sign in with that account and open `/admin`; the admin area is not linked in guest navigation. Administrators can manage rooms and set them Available or Fully booked, oversee reservations, and manage account roles. Admins can cancel a reservation or permanently delete it along with its payment records; deletion does not issue a refund. Deleting a user preserves reservation and payment history.
+
+### Booking confirmation email (SMTP)
+
+After payment succeeds, the guest email on the reservation receives a confirmation with the room, reservation code, stay dates, guest and night counts, payment method, payment date, and total. Set the SMTP values in your local `.env` (do not share or commit your SMTP password):
+
+```dotenv
+MAIL_MAILER=smtp
+MAIL_SCHEME=tls
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-gmail-app-password
+MAIL_FROM_ADDRESS=your-email@gmail.com
+MAIL_FROM_NAME="Casa Grande Hotel"
+```
+
+Use your SMTP provider's host and credentials if you do not use Gmail. Gmail requires an App Password, not your regular account password. After editing `.env`, run `php artisan config:clear` and restart the Laravel server. If SMTP delivery fails, the booking remains confirmed and the mail error is written to the Laravel log.
 
 ## Deploy with Docker
 
 ```bash
 cp .env.docker.example .env.docker
-# edit .env.docker: set APP_KEY, DB_PASSWORD, HOTEL_API_KEY, PAYMENT_API_KEY
+# edit .env.docker: set APP_KEY, DB_PASSWORD, HOTEL_API_KEY, PAYMENT_API_KEY, and SMTP settings
 echo "base64:$(openssl rand -base64 32)"      # use this value for APP_KEY
 docker compose --env-file .env.docker up -d --build
 ```
@@ -93,6 +111,9 @@ Deploying elsewhere (Render, Railway, a VPS): build the `Dockerfile`, point it a
 | `HOTEL_API_KEY` | Key clients send as `X-API-Key` to `/api/*` | `demo-key-123` |
 | `PAYMENT_API_URL` | Payment API endpoint | `http://127.0.0.1:8003/api.php/charges` |
 | `PAYMENT_API_KEY` | Key the hotel app sends to the Payment API (and the Payment API expects) | `pay-key-456` |
+| `MAIL_MAILER`, `MAIL_SCHEME`, `MAIL_HOST`, `MAIL_PORT` | SMTP transport settings | `smtp`, `tls`, provider host, `587` |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | SMTP credentials | Set privately in `.env`; for Gmail, use an App Password |
+| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Sender displayed on booking emails | Your verified sender address, `Casa Grande Hotel` |
 
 ## REST API
 
@@ -119,7 +140,7 @@ Example payment:
 
 | Input | Result |
 |---|---|
-| Card `4242 4242 4242 4242` (Visa), `5555 5555 5555 4444` (Mastercard), `3530 1113 3330 0000` (JCB) | approved |
+| Card `4242 4242 4242 4242` (Visa), `5555 5555 5555 4444` (Mastercard), `3530 1113 3330 0000` (JCB) | simulated approval for any issuer name |
 | Card `4000 0000 0000 0002` | declined (402) |
 | GCash or Maya `09171234567` (or `+63 917 123 4567`) | approved |
 | GCash or Maya number ending in `0000` | declined, insufficient balance (402) |
@@ -162,5 +183,7 @@ tests/Feature/HotelFlowTest.php              integration tests
 ```
 
 ## Notes
-- Payments are **simulated** by the included Payment API; no real GCash, Maya or bank is contacted.
+- Website card payments are simulated locally by the hotel app, so the Payment API does not need to be running to confirm a card booking. REST API payments still call the separate Payment API. No real bank or wallet is contacted and no real money is charged; use only the sample test card numbers shown on the payment page.
+- GCash and Maya QR payments are also simulated locally; no real wallet account is connected.
+- Booking confirmation emails are sent to the reservation guest email after successful card, wallet, or REST API payments.
 - Fonts load from Google Fonts when online and fall back to Georgia/Arial offline.

@@ -1,6 +1,6 @@
 # Casa Grande Hotel - one-command local run on Windows with XAMPP (MySQL) and PHP.
 # Installs dependencies, prepares .env, creates the database, builds the tables, then starts
-# the Payment API (port 8003, new window) and the website (port 8000).
+# the Payment API (port 8003) and the website (port 8000).
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $php   = if (Test-Path 'C:\xampp\php\php.exe') { 'C:\xampp\php\php.exe' } else { 'php' }
@@ -41,8 +41,28 @@ Run-Artisan optimize:clear
 Run-Artisan migrate --force
 Run-Artisan db:seed --force
 
-Write-Host '4/5 Payment API on http://127.0.0.1:8003 (new window) ...'
-Start-Process $php -ArgumentList '-S', '127.0.0.1:8003', '-t', "$PSScriptRoot\payment-api"
+Write-Host '4/5 Payment API on http://127.0.0.1:8003 ...'
+$paymentHealth = 'http://127.0.0.1:8003/api.php/health'
+$paymentReady = $false
+try {
+    $paymentReady = (Invoke-RestMethod -Uri $paymentHealth -TimeoutSec 2).status -eq 'ok'
+} catch {
+    $paymentServer = Start-Process $php -ArgumentList '-S', '127.0.0.1:8003', '-t', "$PSScriptRoot\payment-api" -PassThru -WindowStyle Hidden
+    for ($attempt = 0; $attempt -lt 15; $attempt++) {
+        Start-Sleep -Seconds 1
+        try {
+            $paymentReady = (Invoke-RestMethod -Uri $paymentHealth -TimeoutSec 2).status -eq 'ok'
+        } catch {
+            if ($paymentServer.HasExited) { break }
+        }
+        if ($paymentReady) { break }
+    }
+}
+if (-not $paymentReady) {
+    Write-Host 'Payment API did not become ready on port 8003. Check that PHP is available and the port is free.' -ForegroundColor Red
+    exit 1
+}
+Write-Host 'Payment API is ready.'
 
 Write-Host '5/5 Website on http://127.0.0.1:8000 (Ctrl+C to stop) ...'
 Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 4; Start-Process http://127.0.0.1:8000'

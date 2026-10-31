@@ -42,6 +42,14 @@ class AdminController extends Controller
         return back()->with('notice', "Reservation {$reservation->code} cancelled. This does not issue a payment refund.");
     }
 
+    public function deleteReservation(Reservation $reservation): RedirectResponse
+    {
+        $code = $reservation->code;
+        $reservation->delete();
+
+        return back()->with('notice', "Reservation {$code} and its payment records were permanently deleted.");
+    }
+
     public function rooms(): View
     {
         $rooms = Room::orderBy('id')->get();

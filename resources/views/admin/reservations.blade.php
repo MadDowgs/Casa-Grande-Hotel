@@ -22,14 +22,18 @@
           <td>₱{{ number_format($reservation->total_amount, 2) }}</td>
           <td><span class="pill {{ $reservation->status === 'CONFIRMED' ? 'ok' : ($reservation->status === 'CANCELLED' ? 'bad' : 'mut') }}">{{ $reservation->status }}</span></td>
           <td>
-            @if ($reservation->status !== 'CANCELLED')
-              <form method="POST" action="{{ route('admin.reservations.cancel', $reservation) }}" onsubmit="return confirm('Cancel this reservation? This will not refund a payment.')">
-                @csrf
-                <button class="btn danger sm">Cancel</button>
+            <div class="admin-role-form">
+              @if ($reservation->status !== 'CANCELLED')
+                <form method="POST" action="{{ route('admin.reservations.cancel', $reservation) }}" onsubmit="return confirm('Cancel this reservation? This will not refund a payment.')">
+                  @csrf
+                  <button class="btn danger sm">Cancel</button>
+                </form>
+              @endif
+              <form method="POST" action="{{ route('admin.reservations.delete', $reservation) }}" onsubmit="return confirm('Permanently delete this reservation and all its payment records? This cannot be undone and does not issue a refund.')">
+                @csrf @method('DELETE')
+                <button class="btn danger sm">Delete</button>
               </form>
-            @else
-              <span class="mut small">—</span>
-            @endif
+            </div>
           </td>
         </tr>
       @endforeach</tbody>

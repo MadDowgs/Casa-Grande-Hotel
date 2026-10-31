@@ -14,7 +14,7 @@ class Payment extends Model
 
     public function toApi(): array
     {
-        return ['payment_id' => $this->code, 'status' => $this->status, 'message' => 'Payment successful',
+        return ['payment_id' => $this->code, 'status' => $this->status, 'message' => 'Demo payment successful',
                 'method' => $this->method, 'details' => $this->details, 'transaction_id' => $this->transaction_id];
     }
 }

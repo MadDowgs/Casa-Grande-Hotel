@@ -115,7 +115,7 @@ class SiteController extends Controller
         $in['reservation_id'] = $res->code;
         $in['amount'] = $res->total_amount;     // never trust an amount coming from the browser
         try {
-            $this->svc->pay($in);
+            $this->svc->payDemoCard($in);
             return redirect()->route('done', $res->code);
         } catch (BookingException $e) {
             return back()->withInput($request->only(['method', 'bank', 'card_holder', 'mobile_number']))->with('error', $e->getMessage());

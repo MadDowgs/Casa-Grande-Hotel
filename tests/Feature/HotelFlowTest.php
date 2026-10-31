@@ -7,10 +7,14 @@ use App\Models\Reservation;
 use App\Models\Room;
 use App\Services\BookingService;
 use App\Exceptions\BookingException;
+use App\Mail\BookingConfirmation;
+use App\Models\Payment;
+use App\Models\PaymentSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /** Integration tests: website + REST API + the call to the Payment API (faked over HTTP). */
@@ -197,6 +201,41 @@ class HotelFlowTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $admin->id, 'is_admin' => true]);
     }
 
+    public function test_admin_can_delete_reservations_and_their_payment_records(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+        $this->actingAs($admin)->post('/reserve', $this->booking())->assertRedirect('/pay/RSV-1001');
+
+        $reservation = Reservation::firstOrFail();
+        $payment = Payment::create([
+            'reservation_id' => $reservation->id,
+            'amount' => $reservation->total_amount,
+            'method' => 'card',
+            'status' => 'PAID',
+            'transaction_id' => 'TXN-DELETE-1',
+        ]);
+        $paymentSession = PaymentSession::create([
+            'reservation_id' => $reservation->id,
+            'user_id' => $admin->id,
+            'session_token' => 'delete-session-token',
+            'provider' => 'gcash',
+            'amount' => $reservation->total_amount,
+            'status' => 'PAID',
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $this->get('/admin/reservations')->assertOk()
+            ->assertSee('Delete')
+            ->assertSee('all its payment records');
+        $this->delete("/admin/reservations/{$reservation->id}")
+            ->assertRedirect()
+            ->assertSessionHas('notice');
+
+        $this->assertDatabaseMissing('reservations', ['id' => $reservation->id]);
+        $this->assertDatabaseMissing('payments', ['id' => $payment->id]);
+        $this->assertDatabaseMissing('payment_sessions', ['id' => $paymentSession->id]);
+    }
+
     public function test_admin_can_delete_accounts_but_keeps_reservation_history_and_last_admin(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
@@ -270,6 +309,7 @@ class HotelFlowTest extends TestCase
 
     public function test_successful_card_payment_confirms_the_reservation(): void
     {
+        Mail::fake();
         Http::fake(['*' => Http::response(['transaction_id' => 'TXN-1', 'status' => 'APPROVED', 'details' => 'BDO Unibank Visa **** 4242'], 201)]);
         $res = $this->reserve()->json();
 
@@ -281,6 +321,70 @@ class HotelFlowTest extends TestCase
             && $req->hasHeader('X-API-Key', 'pay-test') && $req['method'] === 'card');
         // the on-screen log must never contain the full card number
         $this->assertStringNotContainsString('4242424242424242', json_encode(ApiLog::first()->request));
+        $this->assertSame('***', ApiLog::first()->headers['X-API-Key']);
+        Mail::assertSent(BookingConfirmation::class, fn (BookingConfirmation $mail) => $mail->hasTo('juan@example.com')
+            && $mail->reservation->code === 'RSV-1001'
+            && $mail->payment->method === 'card'
+            && $mail->payment->details === 'BDO Unibank Visa **** 4242');
+    }
+
+    public function test_website_demo_card_accepts_an_unlisted_issuing_bank_and_confirms_booking(): void
+    {
+        Mail::fake();
+        Http::fake(function () {
+            throw new ConnectionException('Payment API is not running');
+        });
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/reserve', $this->booking())->assertRedirect('/pay/RSV-1001');
+        $this->get('/pay/RSV-1001')->assertOk()->assertDontSee('Demo only: no bank is contacted')->assertSee('bank-options');
+
+        $this->post('/pay/RSV-1001', [
+            'method' => 'card',
+            'bank' => 'Community Credit Union',
+            'card_holder' => 'Demo Guest',
+            'card_number' => '4242 4242 4242 4242',
+            'expiry' => '12/30',
+            'cvv' => '123',
+        ])->assertRedirect('/done/RSV-1001');
+
+        $this->assertDatabaseHas('reservations', ['id' => 1, 'status' => 'CONFIRMED']);
+        $this->assertDatabaseHas('payments', [
+            'reservation_id' => 1,
+            'status' => 'PAID',
+            'details' => 'Community Credit Union Visa **** 4242',
+        ]);
+        $payment = ApiLog::first();
+        $this->assertSame('demo://payment-simulator', $payment->url);
+        $this->assertSame('**** **** **** 4242', $payment->request['card_number']);
+        $this->assertSame('***', $payment->request['cvv']);
+        Http::assertNothingSent();
+        $this->assertSame('***', $payment->headers['X-API-Key']);
+        Mail::assertSent(BookingConfirmation::class, fn (BookingConfirmation $mail) => $mail->hasTo('juan@example.com')
+            && $mail->reservation->room->name === 'Standard Queen'
+            && $mail->payment->method === 'card');
+        $emailHtml = Mail::sent(BookingConfirmation::class)->first()->render();
+        $this->assertStringContainsString('Standard Queen', $emailHtml);
+        $this->assertStringContainsString('Check-in', $emailHtml);
+        $this->assertStringContainsString('Community Credit Union Visa **** 4242', $emailHtml);
+    }
+
+    public function test_website_demo_card_rejects_invalid_card_details(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/reserve', $this->booking());
+
+        $this->from('/pay/RSV-1001')->post('/pay/RSV-1001', [
+            'method' => 'card',
+            'bank' => 'BDO Unibank',
+            'card_holder' => 'Demo Guest',
+            'card_number' => '1234567890123456',
+            'expiry' => '12/30',
+            'cvv' => '123',
+        ])->assertRedirect('/pay/RSV-1001')->assertSessionHas('error');
+
+        $this->assertDatabaseHas('reservations', ['id' => 1, 'status' => 'PENDING']);
+        $this->assertDatabaseMissing('payments', ['reservation_id' => 1]);
+        $this->assertDatabaseMissing('api_logs', ['url' => 'demo://payment-simulator']);
     }
 
     public function test_declined_card_keeps_the_reservation_pending(): void
@@ -362,6 +466,7 @@ class HotelFlowTest extends TestCase
 
     public function test_website_booking_flow_with_gcash_qr(): void
     {
+        Mail::fake();
         $user = User::factory()->create();
         $this->actingAs($user);
 
@@ -376,6 +481,10 @@ class HotelFlowTest extends TestCase
 
         $this->postJson("/pay/RSV-1001/simulate/{$session}")
             ->assertOk()->assertJsonPath('status', 'PAID');
+        Mail::assertSentCount(1);
+        Mail::assertSent(BookingConfirmation::class, fn (BookingConfirmation $mail) => $mail->hasTo('juan@example.com')
+            && $mail->payment->method === 'gcash'
+            && $mail->reservation->check_in->format('Y-m-d') === now()->addDays(2)->format('Y-m-d'));
         $this->assertDatabaseHas('reservations', ['status' => 'CONFIRMED']);
         $this->get('/done/RSV-1001')->assertOk()->assertSee('Your booking is confirmed')->assertSee('img/logo.png', false);
 

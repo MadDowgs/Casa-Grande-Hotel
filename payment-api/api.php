@@ -1,15 +1,15 @@
 <?php
 /* PAYMENT API (System 2). Endpoint: POST /charges  (called by the Hotel API, never by the browser)
    URL: http://127.0.0.1:8003/api.php/charges        Header: X-API-Key: pay-key-456
-   Methods: card (Visa / Mastercard / JCB / Amex issued by PH banks), gcash, maya */
+   Methods: card (Visa / Mastercard / JCB / Amex demo validation), gcash, maya */
 header('Content-Type: application/json');
 define('PAYMENT_KEY', getenv('PAYMENT_API_KEY') ?: 'pay-key-456');
-const BANKS = ['BDO Unibank', 'BPI', 'Metrobank', 'Security Bank', 'UnionBank', 'Landbank', 'PNB', 'RCBC', 'China Bank',
-               'EastWest Bank', 'PSBank', 'Maybank Philippines', 'GoTyme Bank', 'Other bank'];
 function out($code, $data) { http_response_code($code); echo json_encode($data); exit; }
 
+$path = trim($_SERVER['PATH_INFO'] ?? '', '/');
+if ($path === 'health' && $_SERVER['REQUEST_METHOD'] === 'GET') out(200, ['status' => 'ok']);
 if (($_SERVER['HTTP_X_API_KEY'] ?? '') !== PAYMENT_KEY) out(401, ['error' => 'Invalid or missing API key']);
-if (trim($_SERVER['PATH_INFO'] ?? '', '/') !== 'charges') out(404, ['error' => 'Unknown endpoint']);
+if ($path !== 'charges') out(404, ['error' => 'Unknown endpoint']);
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(405, ['error' => 'Use POST /charges']);
 
 $b = json_decode(file_get_contents('php://input'), true);
@@ -42,13 +42,14 @@ if ($method === 'card') {
     $brand = brand_of($card);
     if (!$brand) out(400, ['error' => 'Unsupported card. We accept Visa, Mastercard, JCB and Amex.']);
     if (strlen($card) !== ($brand === 'Amex' ? 15 : 16) || !luhn($card)) out(400, ['error' => 'Invalid card number']);
-    if (!in_array($b['bank'] ?? '', BANKS, true)) out(400, ['error' => 'Select the bank that issued the card']);
+    $bank = trim((string) ($b['bank'] ?? ''));
+    if (!preg_match('/^[\p{L}\p{N}][\p{L}\p{N} .&\'()-]{1,79}$/u', $bank)) out(400, ['error' => 'Enter a valid issuing bank name']);
     if (!preg_match('/^[\p{L}][\p{L} .\'-]{1,59}$/u', trim($b['card_holder'] ?? ''))) out(400, ['error' => 'Enter the name on the card']);
     if (!preg_match('/^(0[1-9]|1[0-2])\/(\d{2})$/', $b['expiry'] ?? '', $m)) out(400, ['error' => 'Expiry must be in MM/YY format']);
     $y = 2000 + (int)$m[2]; $mo = (int)$m[1]; $cy = (int)date('Y'); $cm = (int)date('n');
     if ($y < $cy || ($y === $cy && $mo < $cm) || $y > $cy + 20) out(400, ['error' => 'Card has expired or the expiry date is invalid']);
     if (!preg_match($brand === 'Amex' ? '/^\d{4}$/' : '/^\d{3}$/', $b['cvv'] ?? '')) out(400, ['error' => 'Invalid security code (CVV)']);
-    $details = $b['bank'] . ' ' . $brand . ' **** ' . substr($card, -4);
+    $details = $bank . ' ' . $brand . ' **** ' . substr($card, -4);
     if ($card === '4000000000000002') out(402, ['status' => 'DECLINED', 'message' => 'Card declined by the issuing bank', 'details' => $details]);
 } elseif ($method === 'gcash' || $method === 'maya') {
     $mob = norm_mobile($b['mobile_number'] ?? '');
@@ -60,4 +61,4 @@ if ($method === 'card') {
 }
 
 out(201, ['transaction_id' => 'TXN-' . strtoupper(bin2hex(random_bytes(4))), 'reference' => $b['reference'],
-          'status' => 'APPROVED', 'method' => $method, 'details' => $details, 'message' => 'Payment approved']);
+          'status' => 'APPROVED', 'method' => $method, 'details' => $details, 'message' => 'Demo payment approved']);

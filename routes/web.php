@@ -34,6 +34,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
     Route::get('/', [AdminController::class, 'dashboard'])->name('dashboard');
     Route::get('/reservations', [AdminController::class, 'reservations'])->name('reservations');
     Route::post('/reservations/{reservation}/cancel', [AdminController::class, 'cancelReservation'])->name('reservations.cancel');
+    Route::delete('/reservations/{reservation}', [AdminController::class, 'deleteReservation'])->name('reservations.delete');
     Route::get('/rooms', [AdminController::class, 'rooms'])->name('rooms');
     Route::post('/rooms', [AdminController::class, 'storeRoom'])->name('rooms.store');
     Route::put('/rooms/{room}', [AdminController::class, 'updateRoom'])->name('rooms.update');
