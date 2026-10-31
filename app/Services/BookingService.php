@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\BookingException;
+use App\Exceptions\BrevoEmailException;
 use App\Mail\BookingConfirmation;
 use App\Models\Payment;
 use App\Models\PaymentSession;
@@ -10,14 +11,12 @@ use App\Models\Reservation;
 use App\Models\Room;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
-use Throwable;
 
 /** Business logic shared by the website (Blade) and the REST API. */
 class BookingService
 {
-    public function __construct(private PaymentGateway $gateway) {}
+    public function __construct(private PaymentGateway $gateway, private BrevoEmailService $brevoEmail) {}
 
     public function find(string $code): Reservation
     {
@@ -388,12 +387,18 @@ class BookingService
 
     private function sendBookingConfirmation(Reservation $reservation, Payment $payment): void
     {
+        $confirmation = new BookingConfirmation($reservation, $payment);
+
         try {
-            Mail::to($reservation->guest_email)->send(new BookingConfirmation($reservation, $payment));
-        } catch (Throwable $exception) {
+            $this->brevoEmail->send(
+                $reservation->guest_email,
+                $reservation->guest_name,
+                $confirmation->subjectLine(),
+                $confirmation->render(),
+            );
+        } catch (BrevoEmailException $exception) {
             Log::error('Could not send booking confirmation email.', [
                 'reservation' => $reservation->code,
-                'recipient' => $reservation->guest_email,
                 'exception' => $exception->getMessage(),
             ]);
         }

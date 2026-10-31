@@ -67,28 +67,23 @@ It installs dependencies, creates the database, builds the tables, starts both s
 Create an account or log in before reserving; the Reservations page lists only bookings made by your account.
 To grant administrator access, first create a regular account, then run `php artisan admin:promote your-admin-email@example.com`. Sign in with that account and open `/admin`; the admin area is not linked in guest navigation. Administrators can manage rooms and set them Available or Fully booked, oversee reservations, and manage account roles. Admins can cancel a reservation or permanently delete it along with its payment records; deletion does not issue a refund. Deleting a user preserves reservation and payment history.
 
-### Booking confirmation email (SMTP)
+### Booking confirmation email (Brevo)
 
-After payment succeeds, the guest email on the reservation receives a confirmation with the room, reservation code, stay dates, guest and night counts, payment method, payment date, and total. Set the SMTP values in your local `.env` (do not share or commit your SMTP password):
+After payment succeeds, Brevo's Transactional Email API sends the existing booking confirmation design to the guest email on the reservation. It includes the room, reservation code, stay dates, guest and night counts, payment method, payment date, and total. Set these values in your local `.env` or deployment environment; never commit the API key:
 
 ```dotenv
-MAIL_MAILER=smtp
-MAIL_SCHEME=tls
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=your-gmail-app-password
-MAIL_FROM_ADDRESS=your-email@gmail.com
-MAIL_FROM_NAME="Casa Grande Hotel"
+BREVO_API_KEY=
+BREVO_SENDER_EMAIL=
+BREVO_SENDER_NAME="Casa Grande Hotel"
 ```
 
-Use your SMTP provider's host and credentials if you do not use Gmail. Gmail requires an App Password, not your regular account password. After editing `.env`, run `php artisan config:clear` and restart the Laravel server. If SMTP delivery fails, the booking remains confirmed and the mail error is written to the Laravel log.
+Create a Brevo API key with transactional email access and verify the sender email address in Brevo before sending. The app posts each confirmation to `https://api.brevo.com/v3/smtp/email`. If Brevo rejects the request or the API is unreachable, the booking remains confirmed and the failure is recorded in the Laravel log; check Brevo's transactional email activity to confirm delivery. After changing environment settings, run `php artisan config:clear` and restart the Laravel server.
 
 ## Deploy with Docker
 
 ```bash
 cp .env.docker.example .env.docker
-# edit .env.docker: set APP_KEY, DB_PASSWORD, HOTEL_API_KEY, PAYMENT_API_KEY, and SMTP settings
+# edit .env.docker: set APP_KEY, DB_PASSWORD, HOTEL_API_KEY, PAYMENT_API_KEY, and Brevo settings
 echo "base64:$(openssl rand -base64 32)"      # use this value for APP_KEY
 docker compose --env-file .env.docker up -d --build
 ```
@@ -111,9 +106,8 @@ Deploying elsewhere (Render, Railway, a VPS): build the `Dockerfile`, point it a
 | `HOTEL_API_KEY` | Key clients send as `X-API-Key` to `/api/*` | `demo-key-123` |
 | `PAYMENT_API_URL` | Payment API endpoint | `http://127.0.0.1:8003/api.php/charges` |
 | `PAYMENT_API_KEY` | Key the hotel app sends to the Payment API (and the Payment API expects) | `pay-key-456` |
-| `MAIL_MAILER`, `MAIL_SCHEME`, `MAIL_HOST`, `MAIL_PORT` | SMTP transport settings | `smtp`, `tls`, provider host, `587` |
-| `MAIL_USERNAME`, `MAIL_PASSWORD` | SMTP credentials | Set privately in `.env`; for Gmail, use an App Password |
-| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Sender displayed on booking emails | Your verified sender address, `Casa Grande Hotel` |
+| `BREVO_API_KEY` | Brevo Transactional Email API key | Set privately in `.env` or deployment environment |
+| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Verified sender displayed on booking emails | Brevo-verified address, `Casa Grande Hotel` |
 
 ## REST API
 

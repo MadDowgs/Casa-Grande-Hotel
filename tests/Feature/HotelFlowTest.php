@@ -7,14 +7,12 @@ use App\Models\Reservation;
 use App\Models\Room;
 use App\Services\BookingService;
 use App\Exceptions\BookingException;
-use App\Mail\BookingConfirmation;
 use App\Models\Payment;
 use App\Models\PaymentSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /** Integration tests: website + REST API + the call to the Payment API (faked over HTTP). */
@@ -29,6 +27,9 @@ class HotelFlowTest extends TestCase
             'hotel.api_key' => 'test-key',
             'hotel.payment_url' => 'http://payment.test/api.php/charges',
             'hotel.payment_key' => 'pay-test',
+            'services.brevo.api_key' => 'brevo-test-key',
+            'services.brevo.sender_email' => 'hotel@example.com',
+            'services.brevo.sender_name' => 'Casa Grande Hotel',
         ]);
         $this->seed();
     }
@@ -309,8 +310,10 @@ class HotelFlowTest extends TestCase
 
     public function test_successful_card_payment_confirms_the_reservation(): void
     {
-        Mail::fake();
-        Http::fake(['*' => Http::response(['transaction_id' => 'TXN-1', 'status' => 'APPROVED', 'details' => 'BDO Unibank Visa **** 4242'], 201)]);
+        Http::fake([
+            'http://payment.test/*' => Http::response(['transaction_id' => 'TXN-1', 'status' => 'APPROVED', 'details' => 'BDO Unibank Visa **** 4242'], 201),
+            'https://api.brevo.com/*' => Http::response(['messageId' => 'brevo-message-1'], 201),
+        ]);
         $res = $this->reserve()->json();
 
         $this->api()->postJson('/api/payments', $this->cardPayment($res['reservation_id'], $res['total_amount']))
@@ -322,16 +325,37 @@ class HotelFlowTest extends TestCase
         // the on-screen log must never contain the full card number
         $this->assertStringNotContainsString('4242424242424242', json_encode(ApiLog::first()->request));
         $this->assertSame('***', ApiLog::first()->headers['X-API-Key']);
-        Mail::assertSent(BookingConfirmation::class, fn (BookingConfirmation $mail) => $mail->hasTo('juan@example.com')
-            && $mail->reservation->code === 'RSV-1001'
-            && $mail->payment->method === 'card'
-            && $mail->payment->details === 'BDO Unibank Visa **** 4242');
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.brevo.com/v3/smtp/email'
+            && $request->hasHeader('api-key', 'brevo-test-key')
+            && $request['to'][0]['email'] === 'juan@example.com'
+            && $request['to'][0]['name'] === 'Juan Dela Cruz'
+            && $request['subject'] === 'Booking confirmed - RSV-1001'
+            && str_contains($request['htmlContent'], 'BDO Unibank Visa **** 4242'));
+    }
+
+    public function test_booking_remains_confirmed_when_brevo_rejects_the_email(): void
+    {
+        Http::fake([
+            'http://payment.test/*' => Http::response(['transaction_id' => 'TXN-2', 'status' => 'APPROVED'], 201),
+            'https://api.brevo.com/*' => Http::response(['code' => 'unauthorized', 'message' => 'Invalid API key'], 401),
+        ]);
+        $reservation = $this->reserve()->json();
+
+        $this->api()->postJson('/api/payments', $this->cardPayment($reservation['reservation_id'], $reservation['total_amount']))
+            ->assertStatus(201)
+            ->assertJsonPath('status', 'PAID');
+
+        $this->assertDatabaseHas('reservations', ['id' => 1, 'status' => 'CONFIRMED']);
+        Http::assertSentCount(2);
     }
 
     public function test_website_demo_card_accepts_an_unlisted_issuing_bank_and_confirms_booking(): void
     {
-        Mail::fake();
-        Http::fake(function () {
+        Http::fake(function ($request) {
+            if ($request->url() === 'https://api.brevo.com/v3/smtp/email') {
+                return Http::response(['messageId' => 'brevo-message-2'], 201);
+            }
+
             throw new ConnectionException('Payment API is not running');
         });
         $user = User::factory()->create();
@@ -357,15 +381,12 @@ class HotelFlowTest extends TestCase
         $this->assertSame('demo://payment-simulator', $payment->url);
         $this->assertSame('**** **** **** 4242', $payment->request['card_number']);
         $this->assertSame('***', $payment->request['cvv']);
-        Http::assertNothingSent();
         $this->assertSame('***', $payment->headers['X-API-Key']);
-        Mail::assertSent(BookingConfirmation::class, fn (BookingConfirmation $mail) => $mail->hasTo('juan@example.com')
-            && $mail->reservation->room->name === 'Standard Queen'
-            && $mail->payment->method === 'card');
-        $emailHtml = Mail::sent(BookingConfirmation::class)->first()->render();
-        $this->assertStringContainsString('Standard Queen', $emailHtml);
-        $this->assertStringContainsString('Check-in', $emailHtml);
-        $this->assertStringContainsString('Community Credit Union Visa **** 4242', $emailHtml);
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.brevo.com/v3/smtp/email'
+            && $request['to'][0]['email'] === 'juan@example.com'
+            && str_contains($request['htmlContent'], 'Standard Queen')
+            && str_contains($request['htmlContent'], 'Check-in')
+            && str_contains($request['htmlContent'], 'Community Credit Union Visa **** 4242'));
     }
 
     public function test_website_demo_card_rejects_invalid_card_details(): void
@@ -424,12 +445,17 @@ class HotelFlowTest extends TestCase
     public function test_api_gcash_and_maya_with_mobile_numbers_still_work(): void
     {
         foreach (['gcash', 'maya'] as $index => $method) {
-            Http::fake(['*' => Http::response(['transaction_id' => "TXN-{$method}", 'status' => 'APPROVED', 'details' => ucfirst($method)], 201)]);
+            Http::fake([
+                'http://payment.test/*' => Http::response(['transaction_id' => "TXN-{$method}", 'status' => 'APPROVED', 'details' => ucfirst($method)], 201),
+                'https://api.brevo.com/*' => Http::response(['messageId' => "brevo-{$method}"], 201),
+            ]);
             $start = 10 + ($index * 10);
             $res = $this->reserve(['check_in' => now()->addDays($start)->format('Y-m-d'), 'check_out' => now()->addDays($start + 2)->format('Y-m-d')])->json();
             $payload = ['reservation_id' => $res['reservation_id'], 'amount' => $res['total_amount'], 'method' => $method, 'mobile_number' => '+639171234567'];
             $this->api()->postJson('/api/payments', $payload)->assertStatus(201)->assertJsonPath('method', $method);
-            Http::assertSent(fn ($req) => $req['method'] === $method && $req['mobile_number'] === '09171234567');
+            Http::assertSent(fn ($req) => $req->url() === 'http://payment.test/api.php/charges'
+                && $req['method'] === $method
+                && $req['mobile_number'] === '09171234567');
         }
     }
 
@@ -466,7 +492,9 @@ class HotelFlowTest extends TestCase
 
     public function test_website_booking_flow_with_gcash_qr(): void
     {
-        Mail::fake();
+        Http::fake([
+            'https://api.brevo.com/*' => Http::response(['messageId' => 'brevo-wallet-1'], 201),
+        ]);
         $user = User::factory()->create();
         $this->actingAs($user);
 
@@ -481,14 +509,16 @@ class HotelFlowTest extends TestCase
 
         $this->postJson("/pay/RSV-1001/simulate/{$session}")
             ->assertOk()->assertJsonPath('status', 'PAID');
-        Mail::assertSentCount(1);
-        Mail::assertSent(BookingConfirmation::class, fn (BookingConfirmation $mail) => $mail->hasTo('juan@example.com')
-            && $mail->payment->method === 'gcash'
-            && $mail->reservation->check_in->format('Y-m-d') === now()->addDays(2)->format('Y-m-d'));
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.brevo.com/v3/smtp/email'
+            && $request['to'][0]['email'] === 'juan@example.com'
+            && $request['subject'] === 'Booking confirmed - RSV-1001'
+            && str_contains($request['htmlContent'], 'Gcash'));
         $this->assertDatabaseHas('reservations', ['status' => 'CONFIRMED']);
         $this->get('/done/RSV-1001')->assertOk()->assertSee('Your booking is confirmed')->assertSee('img/logo.png', false);
 
         $this->postJson("/pay/RSV-1001/simulate/{$session}")->assertOk()->assertJsonPath('status', 'PAID');
+        Http::assertSentCount(1);
     }
 
     public function test_booked_dates_endpoint_requires_login_and_returns_only_date_ranges(): void

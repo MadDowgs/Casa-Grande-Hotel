@@ -17,9 +17,14 @@ class BookingConfirmation extends Mailable
         public Payment $payment,
     ) {}
 
+    public function subjectLine(): string
+    {
+        return 'Booking confirmed - ' . $this->reservation->code;
+    }
+
     public function build(): static
     {
-        return $this->subject('Booking confirmed - ' . $this->reservation->code)
+        return $this->subject($this->subjectLine())
             ->view('emails.booking-confirmation')
             ->text('emails.booking-confirmation-text');
     }
